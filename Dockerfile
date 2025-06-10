@@ -1,5 +1,5 @@
-# 1. 베이스 이미지 (Python 3.10 이상 추천)
-FROM python:3.10-slim
+# 1. Python 3.11 베이스 이미지 사용
+FROM python:3.11.3
 
 # 2. 작업 디렉토리 생성
 WORKDIR /app
