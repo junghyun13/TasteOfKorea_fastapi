@@ -3,13 +3,28 @@ import numpy as np
 import tensorflow.lite as tflite
 from PIL import Image
 import io
+import os
+import requests
 
+
+# ✅ FastAPI 앱 선언
 app = FastAPI()
 
-# 📌 1. .tflite 모델 로드
-model_path = "final_model.tflite"
-interpreter = tflite.Interpreter(model_path=model_path)
+# GCS에서 모델 다운로드
+GCS_MODEL_URL = "https://storage.googleapis.com/tastekorea-model/ori_resnet50_123class.tflite"
+LOCAL_MODEL_PATH = "final_model.tflite"
+
+if not os.path.exists(LOCAL_MODEL_PATH):
+    print("📥 Downloading model from GCS...")
+    response = requests.get(GCS_MODEL_URL)
+    with open(LOCAL_MODEL_PATH, 'wb') as f:
+        f.write(response.content)
+    print("✅ Downloaded final_model.tflite")
+
+# 이제 로컬 경로에서 모델 로드
+interpreter = tflite.Interpreter(model_path=LOCAL_MODEL_PATH)
 interpreter.allocate_tensors()
+
 
 # 입력 및 출력 텐서 정보 가져오기
 input_details = interpreter.get_input_details()
