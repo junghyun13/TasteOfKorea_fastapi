@@ -1,0 +1,33 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]  # 또는 'master', 사용하는 브랜치에 따라 변경하세요
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+    - name: Deploy via SSH
+      run: |
+        ssh -o StrictHostKeyChecking=no ec2-user@13.221.78.134 << 'EOF'
+          cd ~/tastekorea-app || mkdir tastekorea-app && cd tastekorea-app
+
+          # GitHub에서 최신 코드 pull
+          git clone https://github.com/junghyun13/TasteOfKorea_fastapi.git . || git pull
+
+          # Docker 빌드 및 실행
+          docker stop tastekorea || true
+          docker rm tastekorea || true
+          docker build -t tastekorea .
+          docker run -d -p 8000:8000 --name tastekorea tastekorea
+        EOF
