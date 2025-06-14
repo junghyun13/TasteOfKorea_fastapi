@@ -3,17 +3,20 @@ import numpy as np
 import tensorflow.lite as tflite
 from PIL import Image
 import io
-from rembg import remove  # rembg 라이브러리 임포트
 
 app = FastAPI()
 
-# 1. TFLite 모델 로드
+# 📌 1. .tflite 모델 로드
 model_path = "final_model.tflite"
 interpreter = tflite.Interpreter(model_path=model_path)
 interpreter.allocate_tensors()
 
+# 입력 및 출력 텐서 정보 가져오기
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
+
+# ✅ 디버깅용 입력 텐서 shape 출력
+print("👉 expected input shape from model:", input_details[0]['shape'])  # 예: (1, 3, 299, 299)
 
 # 📌 2. train_generator.class_indices 사용
 # 실제 학습 시 사용한 class_indices로 업데이트해야 합니다.
@@ -270,38 +273,58 @@ class_indices = {
 
 classes = list(class_indices.keys())
 
-# 3. 이미지 전처리 함수
+# 📌 3. 이미지 전처리 함수
 def preprocess_image(image: Image.Image):
-    image = image.resize((224, 224))  # 모델 입력 크기 맞춤
-    image = np.array(image, dtype=np.float32) / 255.0  # 정규화
-    image = np.expand_dims(image, axis=0)  # 배치 차원 추가
-    return image
+    # ✅ 모델이 기대하는 크기 추출
+    expected_shape = input_details[0]['shape']
+    if len(expected_shape) == 4:
+        if expected_shape[1] == 3:
+            input_height = expected_shape[2]
+            input_width = expected_shape[3]
+        else:
+            input_height = expected_shape[1]
+            input_width = expected_shape[2]
+    else:
+        input_height = 224
+        input_width = 224
 
-# 4. FastAPI 예측 엔드포인트
+
+
+    # 이미지 전처리
+    image = image.resize((input_width, input_height))
+    image = np.array(image, dtype=np.float32) / 255.0
+
+    if image.ndim == 2:
+        image = np.stack((image,) * 3, axis=-1)
+    elif image.shape[-1] == 4:
+        image = image[..., :3]
+
+    # 채널 순서 변경 (HWC → CHW)
+    image = np.transpose(image, (2, 0, 1))
+    image = np.expand_dims(image, axis=0)
+
+ 
+
+    return image.astype(np.float32)
+
+# 📌 4. 예측 API
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
-    # 1) 업로드된 이미지 읽기
-    input_bytes = await file.read()
-    image = Image.open(io.BytesIO(input_bytes)).convert("RGB")
+    image = Image.open(io.BytesIO(await file.read())).convert("RGB")
+    input_data = preprocess_image(image)
 
-    # 2) rembg로 배경 제거 (배경 투명 처리)
-    img_no_bg = remove(image)
-
-    # 3) rembg 처리된 이미지를 RGB 모드로 변환 (rembg는 RGBA 반환)
-    img_no_bg = img_no_bg.convert("RGB")
-
-    # 4) 이미지 전처리
-    input_data = preprocess_image(img_no_bg)
-
-    # 5) 모델 예측 실행
     interpreter.set_tensor(input_details[0]['index'], input_data)
     interpreter.invoke()
+
     output_data = interpreter.get_tensor(output_details[0]['index'])
 
-    # 6) 결과 처리
-    predicted_index = np.argmax(output_data)
+    predicted_index = int(np.argmax(output_data))
     predicted_class = classes[predicted_index]
     confidence = float(output_data[0][predicted_index])
     predicted_id = class_indices[predicted_class]
 
-    return {"id": predicted_id, "class": predicted_class, "confidence": confidence}
+    return {
+        "id": predicted_id,
+        "class": predicted_class,
+        "confidence": confidence
+    }
