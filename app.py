@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware  # ✅ 추가
 import numpy as np
 import tensorflow.lite as tflite
 from PIL import Image
@@ -9,6 +10,15 @@ import requests
 
 # ✅ FastAPI 앱 선언
 app = FastAPI()
+
+# ✅ CORS 설정 추가 (모바일, 로컬, 프론트 등 모두 허용)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 Origin 허용 (보안 이슈 없으면 사용 가능)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # GCS에서 모델 다운로드
 GCS_MODEL_URL = "https://storage.googleapis.com/tastekorea-model/ori_resnet50_123class.tflite"
