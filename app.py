@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware  # ✅ 추가
+import scipy.special  # ✅ 추가
 import numpy as np
 import tensorflow.lite as tflite
 from PIL import Image
@@ -341,15 +342,20 @@ async def predict(file: UploadFile = File(...)):
     interpreter.set_tensor(input_details[0]['index'], input_data)
     interpreter.invoke()
 
-    output_data = interpreter.get_tensor(output_details[0]['index'])
+    output_data = interpreter.get_tensor(output_details[0]['index'])[0]  # ✅ shape: (num_classes,)
 
-    predicted_index = int(np.argmax(output_data))
+    # ✅ Softmax 수동 적용
+    probabilities = scipy.special.softmax(output_data)
+
+    # ✅ 가장 높은 확률의 인덱스 및 값
+    predicted_index = int(np.argmax(probabilities))
     predicted_class = classes[predicted_index]
-    confidence = float(output_data[0][predicted_index])
+    confidence = float(probabilities[predicted_index]) * 100  # ✅ [%]로 보기 좋게
+
     predicted_id = class_indices[predicted_class]
 
     return {
         "id": predicted_id,
         "class": predicted_class,
-        "confidence": confidence
+        "confidence": round(confidence, 2)  # ✅ 소수점 두 자리로 반올림
     }
