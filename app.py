@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware  # ✅ 추가
-import scipy.special  # ✅ 추가
+import tensorflow as tf  # ✅ 누락된 부분 추가!
 import numpy as np
 import tensorflow.lite as tflite
 from PIL import Image
@@ -299,63 +299,52 @@ class_indices = {
 
 classes = list(class_indices.keys())
 
+
+# ✅ 클래스 ID → 클래스명 역변환용
+reverse_class_indices = {v: k for k, v in class_indices.items()}
+
 # 📌 3. 이미지 전처리 함수
 def preprocess_image(image: Image.Image):
-    # ✅ 모델이 기대하는 크기 추출
-    expected_shape = input_details[0]['shape']
-    if len(expected_shape) == 4:
-        if expected_shape[1] == 3:
-            input_height = expected_shape[2]
-            input_width = expected_shape[3]
-        else:
-            input_height = expected_shape[1]
-            input_width = expected_shape[2]
-    else:
-        input_height = 224
-        input_width = 224
-
-
-
-    # 이미지 전처리
-    image = image.resize((input_width, input_height))
+    # ✅ 무조건 299 x 299으로 리사이즈
+    image = image.resize((299, 299))
     image = np.array(image, dtype=np.float32) / 255.0
 
+    # ✅ 채널 수 맞춤
     if image.ndim == 2:
-        image = np.stack((image,) * 3, axis=-1)
+        image = np.stack((image,) * 3, axis=-1)  # 회색 이미지 → 3채널
     elif image.shape[-1] == 4:
-        image = image[..., :3]
+        image = image[..., :3]  # 알파 채널 제거
 
-    # 채널 순서 변경 (HWC → CHW)
-    image = np.transpose(image, (2, 0, 1))
-    image = np.expand_dims(image, axis=0)
+    # ✅ 채널 순서 변경: HWC → CHW
+    image = np.transpose(image, (2, 0, 1))  # (3, 299, 299)
 
- 
+    # ✅ 배치 차원 추가
+    image = np.expand_dims(image, axis=0)  # (1, 3, 299, 299)
 
     return image.astype(np.float32)
 
 # 📌 4. 예측 API
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
+    # ✅ 이미지 불러오기 및 전처리
     image = Image.open(io.BytesIO(await file.read())).convert("RGB")
-    input_data = preprocess_image(image)
+    img_np = preprocess_image(image)
 
-    interpreter.set_tensor(input_details[0]['index'], input_data)
+    # ✅ 모델 추론
+    interpreter.set_tensor(input_details[0]['index'], img_np.astype(input_details[0]['dtype']))
     interpreter.invoke()
 
-    output_data = interpreter.get_tensor(output_details[0]['index'])[0]  # ✅ shape: (num_classes,)
+    output = interpreter.get_tensor(output_details[0]['index'])
 
-    # ✅ Softmax 수동 적용
-    probabilities = scipy.special.softmax(output_data)
+    # ✅ Softmax 적용
+    probs = tf.nn.softmax(output).numpy()[0]
 
-    # ✅ 가장 높은 확률의 인덱스 및 값
-    predicted_index = int(np.argmax(probabilities))
-    predicted_class = classes[predicted_index]
-    confidence = float(probabilities[predicted_index]) * 100  # ✅ [%]로 보기 좋게
-
-    predicted_id = class_indices[predicted_class]
+    # ✅ 예측 ID 및 confidence
+    predicted_id = int(np.argmax(probs))
+    confidence = float(probs[predicted_id])
 
     return {
         "id": predicted_id,
-        "class": predicted_class,
-        "confidence": round(confidence, 2)  # ✅ 소수점 두 자리로 반올림
+        "class": reverse_class_indices[predicted_id],
+        "confidence": round(confidence * 100, 4)
     }
